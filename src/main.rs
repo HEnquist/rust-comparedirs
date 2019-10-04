@@ -69,80 +69,12 @@ fn compare_dirs(dirA: HashMap<PathBuf, PathData>, dirB: HashMap<PathBuf, PathDat
 }
 
 fn main() {
-    //let something =  Arc::new(Mutex::new(HashMap::new()));
-    //let watches = something.lock().unwrap();
     let current_time = Instant::now();
     let watch_a = PathBuf::from("/home/henrik/comparedirs/testdir/A");
-    let mut paths_a = HashMap::new();
     let watch_b = PathBuf::from("/home/henrik/comparedirs/testdir/B");
-    let mut paths_b = HashMap::new();
-    let depth = usize::max_value();
 
-    for entry in WalkDir::new(watch_a.clone())
-        .follow_links(false)
-        .max_depth(depth)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        //let relpath = path.strip_prefix(watch_a.to_str().unwrap())
-        match entry.metadata() {
-            Err(e) => {
-                //self.event_tx.send(RawEvent {
-                //    path: Some(path.to_path_buf()),
-                //    op: Err(Error::Io(e.into())),
-                //    cookie: None,
-                //});
-            }
-            Ok(m) => {
-                let mtime = FileTime::from_last_modification_time(&m).seconds();
-                let relpath = path.strip_prefix(watch_a.to_str().unwrap()).unwrap().to_path_buf();
-                println!("insert {}",relpath.to_path_buf().display());
-                paths_a.insert(
-                    relpath,
-                    PathData {
-                        mtime: mtime,
-                    },
-                );
-            }
-        }
-    }
 
-    for entry in WalkDir::new(watch_b.clone())
-        .follow_links(false)
-        .max_depth(depth)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        match entry.metadata() {
-            Err(e) => {
-                //self.event_tx.send(RawEvent {
-                //    path: Some(path.to_path_buf()),
-                //    op: Err(Error::Io(e.into())),
-                //    cookie: None,
-                //});
-            }
-            Ok(m) => {
-                let mtime = FileTime::from_last_modification_time(&m).seconds();
-                let relpath = path.strip_prefix(watch_b.to_str().unwrap()).unwrap().to_path_buf();
-                println!("insert {}",relpath.to_path_buf().display());
-                paths_b.insert(
-                    relpath,
-                    PathData {
-                        mtime: mtime,
-                    },
-                );
-            }
-        }
-    }
+    let paths_a = map_dir(&watch_a).unwrap();
+    let paths_b = map_dir(&watch_b).unwrap();
     compare_dirs(paths_a, paths_b);
-
-    //watches.insert(
-    //    watch,
-    //    WatchData {
-    //        is_recursive: recursive_mode.is_recursive(),
-    //        paths: paths,
-    //    },
-    //);
 }
