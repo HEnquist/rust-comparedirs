@@ -2,17 +2,26 @@ use walkdir::WalkDir;
 use filetime::FileTime;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use std::error::Error;
 
-
+#[derive(Clone)]
 struct PathData {
     mtime: i64,
+    perms: fs::Permissions,
+    size: u64,
+    ftype: fs::FileType,
+
 }
+
+impl PartialEq for PathData {
+    fn eq(&self, other: &PathData) -> bool {
+        self.mtime == other.mtime && self.perms == other.perms && self.size == other.size && self.ftype == other.ftype
+    }
+}
+
+impl Eq for PathData {}
 
 fn map_dir(basepath: &PathBuf) -> Result<HashMap<PathBuf, PathData>,  Box<Error>> {
     let mut paths = HashMap::new();
@@ -25,21 +34,18 @@ fn map_dir(basepath: &PathBuf) -> Result<HashMap<PathBuf, PathData>,  Box<Error>
         {
             let path = entry.path();
             match entry.metadata() {
-                Err(e) => {
-                    //self.event_tx.send(RawEvent {
-                    //    path: Some(path.to_path_buf()),
-                    //    op: Err(Error::Io(e.into())),
-                    //    cookie: None,
-                    //});
-                }
+                Err(e) => {}
                 Ok(m) => {
                     let mtime = FileTime::from_last_modification_time(&m).seconds();
-                    let relpath = path.strip_prefix(basepath.to_str().unwrap()).unwrap().to_path_buf();
+                    let relpath = path.strip_prefix(basepath.to_str().unwrap_or(""))?.to_path_buf();
                     println!("insert {}",relpath.to_path_buf().display());
                     paths.insert(
                         relpath,
                         PathData {
                             mtime: mtime,
+                            perms: m.permissions(),
+                            size: m.len(),
+                            ftype: m.file_type(),
                         },
                     );
                 }
@@ -48,22 +54,34 @@ fn map_dir(basepath: &PathBuf) -> Result<HashMap<PathBuf, PathData>,  Box<Error>
     Ok(paths)
 }
 
-fn compare_dirs(dirA: HashMap<PathBuf, PathData>, dirB: HashMap<PathBuf, PathData>) {
-    for (path, pathdataA) in &dirA {
-        match dirB.get(path) {
-            Some(pathdataB) => {
-                println!("{} found.", path.display());
-                if pathdataA.mtime > pathdataB.mtime {
-                    println!("A is newer");
+fn compare_dirs(dir_a: &mut HashMap<PathBuf, PathData>, dir_b: &mut HashMap<PathBuf, PathData>) {
+    let mut dir_b_copy = dir_b.clone();
+    for (path, pathdata_a) in dir_a.iter() {
+        match dir_b.get(path) {
+            Some(pathdata_b) => {
+                if pathdata_a == pathdata_b {
+                    println!("{} found, identical", path.display());
                 }
-                else if pathdataA.mtime < pathdataB.mtime {
-                    println!("B is newer");
+                else if pathdata_a.mtime > pathdata_b.mtime {
+                    println!("{} found, A is newer", path.display());
+                }
+                else if pathdata_a.mtime < pathdata_b.mtime {
+                    println!("{} found, B is newer", path.display());
                 }
                 else {
-                    println!("same age");
+                    println!("{} found, different", path.display());
                 }
+                dir_b_copy.remove(path);
             }
-            None => println!("{} is missing.", path.display())
+            None => println!("{} is missing from B.", path.display())
+        }
+    }
+    for (path, pathdata_b) in dir_b_copy.iter() {
+        match dir_a.get(path) {
+            Some(pathdata_a) => {
+                println!("{} found in both, strange..", path.display());
+            }
+            None => println!("{} is missing from A.", path.display())
         }
     }
 }
@@ -74,7 +92,7 @@ fn main() {
     let watch_b = PathBuf::from("/home/henrik/comparedirs/testdir/B");
 
 
-    let paths_a = map_dir(&watch_a).unwrap();
-    let paths_b = map_dir(&watch_b).unwrap();
-    compare_dirs(paths_a, paths_b);
+    let mut paths_a = map_dir(&watch_a).unwrap();
+    let mut paths_b = map_dir(&watch_b).unwrap();
+    compare_dirs(&mut paths_a, &mut paths_b);
 }
