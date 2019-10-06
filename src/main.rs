@@ -2,6 +2,8 @@ use walkdir::WalkDir;
 use filetime::FileTime;
 use std::collections::HashMap;
 use std::fs;
+use std::fs::File;
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use std::error::Error;
@@ -85,34 +87,39 @@ fn map_dir(basepath: &PathBuf) -> Result<DirIndex,  Box<Error>> {
     })
 }
 
-fn compare_dirs(dir_a: &mut HashMap<PathBuf, PathData>, dir_b: &mut HashMap<PathBuf, PathData>) {
+fn compare_dirs(dir_a: &DirIndex, dir_b: &DirIndex) {
     let mut dir_b_copy = dir_b.clone();
-    for (path, pathdata_a) in dir_a.iter() {
-        match dir_b.get(path) {
+    for (path, pathdata_a) in dir_a.contents.iter() {
+        match dir_b.contents.get(path) {
             Some(pathdata_b) => {
                 if pathdata_a == pathdata_b {
                     println!("{} found, identical", path.display());
                 }
                 else if pathdata_a.mtime > pathdata_b.mtime {
                     println!("{} found, A is newer", path.display());
+                    // copy A to B
                 }
                 else if pathdata_a.mtime < pathdata_b.mtime {
                     println!("{} found, B is newer", path.display());
+                    // copy B to A
                 }
                 else {
                     println!("{} found, different", path.display());
+                    // mode changed
                 }
-                dir_b_copy.remove(path);
+                dir_b_copy.contents.remove(path);
             }
             None => println!("{} is missing from B.", path.display())
+            // copy A to B
         }
     }
-    for (path, pathdata_b) in dir_b_copy.iter() {
-        match dir_a.get(path) {
+    for (path, pathdata_b) in dir_b_copy.contents.iter() {
+        match dir_a.contents.get(path) {
             Some(pathdata_a) => {
                 println!("{} found in both, strange..", path.display());
             }
             None => println!("{} is missing from A.", path.display())
+            // copy B to A
         }
     }
 }
@@ -126,6 +133,13 @@ fn main() {
     let mut paths_a = map_dir(&watch_a).unwrap();
     let mut paths_b = map_dir(&watch_b).unwrap();
     let serialized = serde_json::to_string(&paths_a).unwrap();
+
+    let mut jsonpath = PathBuf::from(&watch_a);
+    jsonpath.push("twoway.json");
+    println!("json {}", jsonpath.display());
+
+    let mut jsonfile = File::create(jsonpath).unwrap();
+    jsonfile.write_all(serialized.as_bytes()).unwrap();
     println!("serialized = {}", serialized);
-    //compare_dirs(&mut paths_a, &mut paths_b);
+    compare_dirs(&paths_a, &paths_b);
 }
