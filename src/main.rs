@@ -3,16 +3,32 @@ use filetime::FileTime;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime};
 use std::error::Error;
+use std::os::unix::fs::PermissionsExt;
 
-#[derive(Clone)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+enum FileType {
+    File,
+    Dir,
+    Link,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 struct PathData {
     mtime: i64,
-    perms: fs::Permissions,
+    perms: u32,
     size: u64,
-    ftype: fs::FileType,
+    ftype: FileType,
+}
 
+#[derive(Clone, Serialize, Deserialize)]
+struct DirIndex {
+    scantime: u64,
+    root: PathBuf,
+    contents: HashMap<PathBuf, PathData>,
 }
 
 impl PartialEq for PathData {
@@ -23,7 +39,8 @@ impl PartialEq for PathData {
 
 impl Eq for PathData {}
 
-fn map_dir(basepath: &PathBuf) -> Result<HashMap<PathBuf, PathData>,  Box<Error>> {
+fn map_dir(basepath: &PathBuf) -> Result<DirIndex,  Box<Error>> {
+    let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
     let mut paths = HashMap::new();
     let depth = usize::max_value();
     for entry in WalkDir::new(basepath.clone())
@@ -38,20 +55,34 @@ fn map_dir(basepath: &PathBuf) -> Result<HashMap<PathBuf, PathData>,  Box<Error>
                 Ok(m) => {
                     let mtime = FileTime::from_last_modification_time(&m).seconds();
                     let relpath = path.strip_prefix(basepath.to_str().unwrap_or(""))?.to_path_buf();
+                    let ftype = if m.file_type().is_dir() {
+                        FileType::Dir
+                    }
+                    else if m.file_type().is_symlink() {
+                        FileType::Link
+                    }
+                    else {
+                        FileType::File
+                    };
+
                     println!("insert {}",relpath.to_path_buf().display());
                     paths.insert(
                         relpath,
                         PathData {
                             mtime: mtime,
-                            perms: m.permissions(),
+                            perms: m.permissions().mode(),
                             size: m.len(),
-                            ftype: m.file_type(),
+                            ftype: ftype,
                         },
                     );
                 }
             }
         }
-    Ok(paths)
+    Ok(DirIndex {
+        scantime: current_time,
+        root: basepath.to_path_buf(),
+        contents: paths,
+    })
 }
 
 fn compare_dirs(dir_a: &mut HashMap<PathBuf, PathData>, dir_b: &mut HashMap<PathBuf, PathData>) {
@@ -87,12 +118,14 @@ fn compare_dirs(dir_a: &mut HashMap<PathBuf, PathData>, dir_b: &mut HashMap<Path
 }
 
 fn main() {
-    let current_time = Instant::now();
+    //let current_time = Instant::now();
     let watch_a = PathBuf::from("/home/henrik/comparedirs/testdir/A");
     let watch_b = PathBuf::from("/home/henrik/comparedirs/testdir/B");
 
 
     let mut paths_a = map_dir(&watch_a).unwrap();
     let mut paths_b = map_dir(&watch_b).unwrap();
-    compare_dirs(&mut paths_a, &mut paths_b);
+    let serialized = serde_json::to_string(&paths_a).unwrap();
+    println!("serialized = {}", serialized);
+    //compare_dirs(&mut paths_a, &mut paths_b);
 }
